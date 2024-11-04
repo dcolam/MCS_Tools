@@ -11,7 +11,7 @@ editor_options:
 
 
 ```{r message=FALSE, warning=FALSE}
-library(xlsx)
+
 library(dplyr)
 library(stringr)
 library(ggplot2)
@@ -147,9 +147,6 @@ names(dfs) <- l_files
 
 df <- bind_rows(dfs, .id = "column_label")
 
-df$column_lab
-
-
 #df <- df[df$Burst_Peak_frequency > 1,]
 
 df.ag <- ag(df, cols= c("column_label", "File"))
@@ -198,7 +195,7 @@ emmeans(mod, trt.vs.ctrl ~ Genotype | Condition | Brainregion, ref="I9")
 see above
 
 ```{r}
-ggplot(df.burst, aes(x=Genotype, y=log10(isi_s), color=Exp_ID, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
+ggplot(df.burst, aes(x=Genotype, y=log10(isi_s), color=Set, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
 
 mod <- lmer(log10(isi_s) ~ Genotype * Condition * Brainregion + (1|Exp_ID), subset(df.burst, Genotype %in% c("WT", "KO")))
 summary(mod)
@@ -285,7 +282,6 @@ names(dfs) <- l_files
 
 df <- bind_rows(dfs, .id = "column_label")
 
-df$column_lab
 #df <- df[df$Burst_Peak_frequency > 1,]
 
 df.ag <- ag(df, cols= c("column_label", "File", "channel"))
@@ -347,6 +343,8 @@ df.ag.peak <- df.ag.peak[df.ag.peak$event.y > threshold,]
 
 df.ag.peak <- ag(df.ag.peak, cols= c("column_label", "File"))
 
+df.ag.peak <- clean_table_mea(df.ag.peak)
+
 ```
 
 
@@ -355,11 +353,12 @@ df.ag.peak <- ag(df.ag.peak, cols= c("column_label", "File"))
 Like above with burst level analysis
 
 ```{r}
-ggplot(df.ag.peak, aes(x=Genotype, y=log10(isi_s), color=Set, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
+ggplot(df.ag.peak, aes(x=Genotype, y=Amplitude_mV, color=Set, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
 
+ggplot(df.ag.peak, aes(x=Genotype, y=isi_s, color=Exp_ID, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free") + guides(color=FALSE)
 
 df.ag.peak$Genotype <- factor(df.ag.peak$Genotype, levels= c("WT", "KO", "I9", "GD1"))
-mod <- lmer(log10(isi_s) ~ Genotype * Condition * Brainregion + (1|Exp_ID), subset(df.ag.peak, Genotype %in% c("WT", "KO")))
+mod <- lmer(Amplitude_mV ~ Genotype * Condition * Brainregion + (1|Exp_ID), subset(df.ag.peak, Genotype %in% c("WT", "KO")))
 summary(mod)
 emmeans(mod, trt.vs.ctrl ~ Condition | Genotype | Brainregion, ref="BASE")
 emmeans(mod, trt.vs.ctrl ~ Genotype | Condition | Brainregion, ref="WT")
@@ -367,10 +366,31 @@ emmeans(mod, trt.vs.ctrl ~ Genotype | Condition | Brainregion, ref="WT")
 mod <- lmer(log10(isi_s) ~ Genotype * Condition * Brainregion + (1|Exp_ID), subset(df.ag.peak, Genotype %in% c("I9", "GD1")))
 summary(mod)
 emmeans(mod, trt.vs.ctrl ~ Condition | Genotype | Brainregion, ref="BASE")
-emmeans(mod, trt.vs.ctrl ~ Genotype | Condition | Brainregion, ref="WT")
+emmeans(mod, trt.vs.ctrl ~ Genotype | Condition | Brainregion, ref="I9")
 
-ggplot(df.ag.peak, aes(x=Genotype, y=isi_s, color=Exp_ID, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
+```
 
+
+## To Save images
+
+Set your plot of interest as a variable and use the function ggsave including location of saving
+
+Example:
+
+```{r}
+p2save <- ggplot(df.ag.peak, aes(x=Genotype, y=Amplitude_mV, color=Set, fill=Condition, group=interaction(Genotype, Condition))) + geom_boxplot(alpha=0.4) + geom_point(position=position_jitterdodge(0)) + facet_grid(.~Brainregion, scales="free")
+
+
+ggsave("C:\\Users\\davec\\Documents\\R-Markdowns\\MEA_James\\MEA\\Amplitudes.png", plot = p2save)
+
+```
+
+ggplots can be customized a lot to your liking. Let me know if you want something specific.
+
+## Session Info
+
+```{r}
+sessionInfo()
 ```
 
 
