@@ -151,7 +151,140 @@ def plot_spikes(recording, channels, startTime=0, endTime=60, pretrigger=0.001, 
     fig.supxlabel('Time (s)')
     #plt.show()
 
+
 def compute_burst_activity(spikes,
+                              recording,
+                              plotRaster=False,
+                              fullTrace=True,
+                              startTime=0,
+                              endTime=60,
+                              sigma=0.03,
+                              binSize=0.01,
+                              threshold=3,
+                              pretrigger=10,
+                              posttrigger=10,
+                              min_channels=5):  # New parameter for channel threshold
+
+    fs = recording.get_sampling_frequency()
+    channels = recording.channel_ids
+    pretrigger = (pretrigger * fs) / 1000  # Pre-event time window in frames
+    posttrigger = (posttrigger * fs) / 1000
+
+    if fullTrace:
+        startTime = 0
+        endTime = recording.get_duration()
+
+    histc, _ = np.histogram(spikes["peak_time_s"], bins=np.arange(startTime, endTime, binSize))
+
+    kernel_matrix = norm.pdf(np.arange(-3 * sigma, 3 * sigma, binSize), 0, sigma)
+    freq = np.convolve(histc, kernel_matrix * binSize, 'same')
+    freq = (freq / binSize) / len(channels)
+    time_range = np.arange(startTime, endTime, binSize)
+    histc = (histc / binSize) / len(channels)
+
+    rms = np.sqrt(np.mean(freq ** 2))
+    thresh_min_width = 0.2 * (fs / 1000)
+    peaks, peaks_dict = signal.find_peaks(freq, height=rms * threshold, width=thresh_min_width)
+
+
+    # Check if any peaks are detected
+
+    # Filtering step: Check active channels during each burst
+    filtered_peaks = []
+    # filtered_peaks_dict = {}
+    channel_numbers = []
+    for pos, peak_idx in enumerate(peaks):
+        peak_time = time_range[peak_idx]
+        window_start = peak_time - 0.05  # 50 ms before the peak
+        window_end = peak_time + 0.05  # 50 ms after the peak
+
+        # window_start = peaks_dict['left_ips'][peak_idx] - pretrigger
+        # window_end = peaks_dict['right_ips'][peak_idx] + posttrigger
+
+        # window_start = peak_idx - pretrigger
+        # window_end = peak_idx + posttrigger
+
+        # Find spikes within the window
+        in_window = (spikes["peak_time_s"] >= window_start) & (spikes["peak_time_s"] <= window_end)
+        # filt_spikes = spikes
+        active_channels = np.unique(spikes[in_window]["channel"])
+        # Check if the number of active channels meets the threshold
+        if len(active_channels) >= min_channels:
+            filtered_peaks.append(pos)
+            channel_numbers.append(len(active_channels))
+
+    # Convert filtered peaks back to arrays
+    peaks = peaks[filtered_peaks]
+    peaks_dict = {k: v[filtered_peaks] for k, v in peaks_dict.items()}
+
+    if len(peaks) == 0:
+        print("No peaks detected.")
+        if plotRaster:
+            fig, axes = plt.subplots(2, 1, sharex=True, figsize=(6, 8))
+            spikes.plot.scatter(x="peak_time_s", y="trace_index", ax=axes[0], c=spikes["trace_index"],
+                                colormap='viridis',
+                                s=1, colorbar=False, alpha=0.5)
+            axes[1].plot(np.arange(startTime, endTime, binSize)[1:], freq)
+            plt.xlabel("Time (s)")
+            plt.ylabel("Frequency [Hz]")
+            plt.axhline(y=rms * threshold, color='r', linestyle='-')
+            plt.title("No Peaks Detected")
+            # plt.show()
+
+        # Return an empty burst table
+        return pd.DataFrame(columns=["File", 'burst_index', 'burst_frame',
+                                     'burst_time_s',
+                                     'event_window_start', 'event_window_end', "Burst_Peak_frequency", 'width_ms',
+                                     'inst_freq', 'isi_s',
+                                     'area', "nr_of_channels"])
+
+    burst_table = pd.DataFrame(columns=["File", 'burst_index', 'burst_frame',
+                                        'burst_time_s',
+                                        'event_window_start', 'event_window_end', "Burst_Peak_frequency", 'width_ms',
+                                        'inst_freq', 'isi_s',
+                                        'area', "nr_of_channels"])
+
+    burst_table.burst_index = np.arange(1, len(peaks) + 1)
+    burst_table.nr_of_channels = channel_numbers
+    # burst_table["File"] = spikes["File"]
+    burst_table.burst_frame = peaks
+    burst_table.burst_time_s = peaks / fs  # Divided by fs to get s
+    burst_table.event_window_start = peaks_dict['left_ips'] - pretrigger
+    burst_table.event_window_end = peaks_dict['right_ips'] + posttrigger
+    # burst_table.burst_amp = peaks_dict['peak_heights']
+    burst_table.Burst_Peak_frequency = freq[peaks]  # height parameter is needed
+    burst_table.width_ms = peaks_dict['widths'] / (fs / 1000)  # Width (ms) at half-height
+
+    # Calculations based on the parameters above
+    burst_table.inst_freq = np.insert((1 / (np.array(burst_table.burst_frame[1:]) -
+                                            np.array(peaks_dict['left_ips'][:-1])) * fs),
+                                      0, np.nan)
+
+    burst_table.isi_s = np.diff(peaks, axis=0, prepend=peaks[0]) / fs
+
+    for i, event in burst_table.iterrows():
+        # print(event)
+        individual_event = freq[int(event.burst_frame - pretrigger): int(event.burst_frame + posttrigger)]
+        # peak_trace = np.append(peak_trace, individual_event, axis=0)
+        # print(individual_event.shape)
+        # peak_trace =np.concatenate(([peak_trace],[individual_event]),axis=0)
+        burst_table.loc[i, 'area'] = np.round(individual_event.sum(), 1) / (fs / 1000)
+
+    if plotRaster:
+        fig, axes = plt.subplots(2, 1, sharex=True, figsize=(6, 8))
+        spikes.plot.scatter(x="peak_time_s", y="trace_index", ax=axes[0], c=spikes["trace_index"], colormap='viridis',
+                            s=1, colorbar=False, alpha=0.5)
+        # axes[1].plot(time_range[1:], histc)
+        axes[1].plot(np.arange(startTime, endTime, binSize)[1:], freq)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Frequency [Hz]")
+
+        plt.axhline(y=rms * threshold, color='r', linestyle='-')
+        plt.scatter(time_range[1:][peaks], peaks_dict["peak_heights"], c="r")
+        # plt.show()
+
+    return burst_table
+def compute_burst_activity_deprecated(spikes,
                            recording,
                            plotRaster=False,
                            fullTrace=True,
@@ -236,3 +369,4 @@ def get_most_active_channels(table, n_channels = 6):
         {"peak_index": ["count"], "Amplitude_mV": ['mean', "median"]}).reset_index()
 
     return table_aggregate["peak_index", "count"].nlargest(n_channels)
+
